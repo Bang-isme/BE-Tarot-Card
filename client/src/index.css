@@ -1,0 +1,69 @@
+/* Reset CSS cơ bản */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Arial', sans-serif;
+    background-color: #1a0933; /* Màu nền chính của ứng dụng */
+    color: #f0c05a; /* Màu chữ chính */
+}
+
+/* Các lớp cho các component */
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+.header {
+    background-color: #1a0933;
+    padding: 20px;
+    border-bottom: 1px solid #3a1c5a;
+}
+
+.footer {
+    background-color: #1a0933;
+    padding: 20px;
+    border-top: 1px solid #3a1c5a;
+    text-align: center;
+}
+
+/* Các lớp cho nút */
+.button {
+    background-color: #e67e22;
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.button:hover {
+    background-color: #f0c05a;
+}
+
+/* Các lớp cho modal */
+.modal {
+    background-color: #2a1045;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Các lớp cho các thành phần khác */
+.text-center {
+    text-align: center;
+}
+
+.text-gray {
+    color: #ccc;
+}
+
+/* Tailwind CSS */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
