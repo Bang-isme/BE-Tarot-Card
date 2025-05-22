@@ -1,172 +1,140 @@
-# Tarot App - Backend (MySQL)
+# Tarot API - Social Auth
 
-Backend API cho ứng dụng Tarot sử dụng MySQL và Sequelize ORM.
+API Backend xử lý đăng nhập xã hội (Facebook, Google) cho ứng dụng Tarot.
 
-## Cấu trúc dự án
+## Tính năng
 
-```
-server-mysql/
-├── src/
-│   ├── config/            # Cấu hình ứng dụng và database
-│   ├── controllers/       # Các controllers xử lý logic
-│   ├── middlewares/       # Các middleware
-│   ├── migrations/        # Scripts tạo và seed database
-│   ├── models/            # Các models Sequelize
-│   ├── routes/            # Định nghĩa routes
-│   ├── utils/             # Các utility function
-│   └── index.js           # Entry point
-├── .env.example           # Template biến môi trường
-├── Procfile               # Cấu hình cho Heroku
-├── package.json           # Dependencies và scripts
-└── README.md              # Documentation
-```
+- Xác thực người dùng qua Facebook và Google
+- Tự động tạo tài khoản mới nếu người dùng chưa tồn tại
+- Liên kết tài khoản xã hội với tài khoản hiện tại (dựa trên email)
+- Tạo JWT token cho client
+- Middleware xác thực bảo vệ routes
 
-## Các tính năng
+## Cài đặt
 
-- **Authentication**: Đăng ký, đăng nhập, đăng xuất, quên mật khẩu
-- **Authorization**: Bảo vệ routes dựa trên vai trò người dùng
-- **Tarot API**: Xem thông tin lá bài, tạo và lưu trải bài, lá bài ngày
+### Yêu cầu
 
-## Database Schema
+- Node.js >= 14.0.0
+- MySQL Server
+- Đã tạo ứng dụng Facebook và Google OAuth
 
-- **Users**: Lưu thông tin người dùng
-- **Cards**: Lưu thông tin về 78 lá bài Tarot
-- **Readings**: Lưu thông tin về các lần trải bài
-- **ReadingCards**: Bảng join giữa Readings và Cards
-- **DailyTarot**: Lưu thông tin lá bài ngày
+### Các bước cài đặt
 
-## Cài đặt và cấu hình
-
-1. **Cài đặt dependencies**
-   ```
+1. Clone repository
+2. Cài đặt dependencies:
+   ```bash
+   cd server
    npm install
    ```
-
-2. **Cấu hình môi trường**
-   - Tạo file `.env` từ template `.env.example`
-   - Cấu hình thông tin MySQL database
-
-3. **Tạo database**
+3. Tạo file .env với các biến môi trường sau:
    ```
-   npm run db:create
-   ```
-
-4. **Tạo các bảng**
-   ```
-   npm run db:migrate
-   ```
-
-5. **Tạo dữ liệu mẫu**
-   ```
-   npm run db:seed
+   PORT=3001
+   DB_HOST=localhost
+   DB_USER=root
+   DB_PASSWORD=your_mysql_password
+   DB_NAME=tarot_app
+   JWT_SECRET=your_jwt_secret_key
+   JWT_EXPIRES_IN=30d
+   GOOGLE_CLIENT_ID=your_google_client_id
+   FACEBOOK_APP_ID=your_facebook_app_id
+   NODE_ENV=development
    ```
 
 ## Chạy ứng dụng
 
-**Development mode**
-```
+### Môi trường phát triển
+```bash
 npm run dev
 ```
 
-**Production mode**
-```
+### Môi trường production
+```bash
 npm start
 ```
 
-## Triển khai Server Live
-
-### Triển khai lên Heroku
-
-1. **Đăng nhập vào Heroku CLI**
-   ```
-   heroku login
-   ```
-
-2. **Tạo ứng dụng Heroku**
-   ```
-   heroku create your-tarot-app-name
-   ```
-
-3. **Thêm database add-on**
-   ```
-   heroku addons:create jawsdb:kitefin
-   ```
-
-4. **Cấu hình biến môi trường**
-   ```
-   heroku config:set NODE_ENV=production
-   heroku config:set JWT_SECRET=your_secure_jwt_secret
-   heroku config:set JWT_EXPIRES_IN=30d
-   heroku config:set JWT_COOKIE_EXPIRE=30
-   ```
-
-5. **Deploy ứng dụng**
-   ```
-   git add .
-   git commit -m "Deploy to Heroku"
-   git push heroku main
-   ```
-
-### Triển khai lên VPS/Server
-
-1. **Cài đặt Node.js và MySQL trên server**
-
-2. **Tạo database MySQL**
-   ```
-   mysql -u root -p
-   CREATE DATABASE tarot_db;
-   CREATE USER 'tarot_user'@'localhost' IDENTIFIED BY 'your_password';
-   GRANT ALL PRIVILEGES ON tarot_db.* TO 'tarot_user'@'localhost';
-   FLUSH PRIVILEGES;
-   EXIT;
-   ```
-
-3. **Cấu hình PM2 để chạy ứng dụng**
-   ```
-   npm install -g pm2
-   pm2 start src/index.js --name tarot-app
-   pm2 startup
-   pm2 save
-   ```
-
-4. **Cấu hình Nginx (nếu cần)**
-   ```
-   server {
-     listen 80;
-     server_name your-domain.com;
-     
-     location / {
-       proxy_pass http://localhost:5000;
-       proxy_http_version 1.1;
-       proxy_set_header Upgrade $http_upgrade;
-       proxy_set_header Connection 'upgrade';
-       proxy_set_header Host $host;
-       proxy_cache_bypass $http_upgrade;
-     }
-   }
-   ```
-
 ## API Endpoints
 
-### Authentication
-- `POST /api/auth/register` - Đăng ký người dùng mới
-- `POST /api/auth/login` - Đăng nhập
-- `GET /api/auth/logout` - Đăng xuất
-- `GET /api/auth/me` - Lấy thông tin người dùng hiện tại
-- `PUT /api/auth/update-details` - Cập nhật thông tin cá nhân
-- `PUT /api/auth/update-password` - Cập nhật mật khẩu
-- `POST /api/auth/forgot-password` - Quên mật khẩu
-- `PUT /api/auth/reset-password/:resettoken` - Đặt lại mật khẩu
+### Social Authentication
 
-### Tarot
-- `GET /api/tarot/cards` - Lấy tất cả lá bài
-- `GET /api/tarot/cards/:id` - Lấy thông tin một lá bài
-- `GET /api/tarot/daily` - Lấy lá bài ngày
-- `POST /api/tarot/readings` - Tạo một lần đọc bài mới
-- `GET /api/tarot/readings` - Lấy lịch sử đọc bài của người dùng
-- `GET /api/tarot/readings/:id` - Lấy thông tin chi tiết một lần đọc bài
+#### Facebook Login
+- **URL**: `/api/auth/social/facebook`
+- **Method**: `POST`
+- **Data**: 
+  ```json
+  {
+    "token": "facebook_access_token"
+  }
+  ```
+- **Response**: 
+  ```json
+  {
+    "success": true,
+    "data": {
+      "user": {
+        "id": 1,
+        "name": "Nguyen Van A",
+        "email": "example@gmail.com",
+        "avatar": "https://example.com/avatar.jpg",
+        "isAdmin": false
+      },
+      "token": "jwt_token"
+    }
+  }
+  ```
 
-## Tài khoản mặc định
+#### Google Login
+- **URL**: `/api/auth/social/google`
+- **Method**: `POST`
+- **Data**: 
+  ```json
+  {
+    "token": "google_id_token"
+  }
+  ```
+- **Response**: (Same as Facebook Login)
 
-- **Admin**: admin@tarot.com / admin123
-- **User**: user@tarot.com / user123 
+### Kiểm tra xác thực
+
+- **URL**: `/api/auth/me`
+- **Method**: `GET`
+- **Headers**: 
+  ```
+  Authorization: Bearer jwt_token
+  ```
+- **Response**: 
+  ```json
+  {
+    "success": true,
+    "data": {
+      "user": {
+        "id": 1,
+        "name": "Nguyen Van A",
+        "email": "example@gmail.com",
+        "avatar": "https://example.com/avatar.jpg",
+        "role": "user",
+        "isAdmin": false
+      }
+    }
+  }
+  ```
+
+## Tạo Credentials cho Facebook và Google
+
+### Facebook
+1. Đăng nhập vào [Facebook Developer](https://developers.facebook.com/)
+2. Tạo App mới (App Type: Consumer)
+3. Thêm Facebook Login product
+4. Cấu hình OAuth Redirect URI thành: `https://your-frontend-domain.com/auth/facebook/callback`
+5. Lấy App ID và App Secret
+
+### Google
+1. Đăng nhập vào [Google Cloud Console](https://console.cloud.google.com/)
+2. Tạo Project mới
+3. Vào APIs & Services > Credentials
+4. Tạo OAuth 2.0 Client ID
+5. Cấu hình Authorized JavaScript origins và Authorized redirect URIs
+6. Lấy Client ID và Client Secret
+
+## License
+
+MIT 

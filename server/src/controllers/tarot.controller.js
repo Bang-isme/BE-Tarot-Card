@@ -1,226 +1,524 @@
-import { Op } from 'sequelize';
-import ErrorResponse from '../utils/errorResponse.js';
-import asyncHandler from '../utils/asyncHandler.js';
-import { Card, Reading, ReadingCard, DailyTarot } from '../models/index.js';
+const db = require('../models');
+const TarotCard = db.tarotCards;
+const TarotReading = db.tarotReadings;
+const TarotReadingCard = db.tarotReadingCards;
+const TarotReadingInterpretation = db.tarotReadingInterpretations;
+const User = db.users;
+const { generateAIResponse } = require('../services/ai.service');
 
-/**
- * @desc    Lấy tất cả các lá bài
- * @route   GET /api/tarot/cards
- * @access  Public
- */
-export const getAllCards = asyncHandler(async (req, res, next) => {
-  // Xử lý các tham số query
-  const { arcana, suit } = req.query;
-  const whereCondition = {};
-
-  if (arcana) {
-    whereCondition.arcana = arcana;
-  }
-
-  if (suit) {
-    whereCondition.suit = suit;
-  }
-
-  const cards = await Card.findAll({
-    where: whereCondition,
-    order: [
-      ['arcana', 'ASC'],
-      ['suit', 'ASC'],
-      ['number', 'ASC']
-    ]
-  });
-
-  res.status(200).json({
-    success: true,
-    count: cards.length,
-    data: cards
-  });
-});
-
-/**
- * @desc    Lấy thông tin một lá bài
- * @route   GET /api/tarot/cards/:id
- * @access  Public
- */
-export const getCard = asyncHandler(async (req, res, next) => {
-  const card = await Card.findByPk(req.params.id);
-
-  if (!card) {
-    return next(new ErrorResponse(`Không tìm thấy lá bài với ID ${req.params.id}`, 404));
-  }
-
-  res.status(200).json({
-    success: true,
-    data: card
-  });
-});
-
-/**
- * @desc    Lấy lá bài Tarot ngày
- * @route   GET /api/tarot/daily
- * @access  Public
- */
-export const getDailyTarot = asyncHandler(async (req, res, next) => {
-  // Lấy ngày hiện tại
-  const today = new Date().toISOString().split('T')[0];
-
-  // Tìm bài Tarot ngày cho hôm nay
-  let dailyTarot = await DailyTarot.findOne({
-    where: { date: today },
-    include: [{ model: Card, as: 'card' }]
-  });
-
-  // Nếu chưa có, tạo một lá bài ngẫu nhiên cho hôm nay
-  if (!dailyTarot) {
-    // Lấy số lượng lá bài trong database
-    const cardCount = await Card.count();
+// Lấy tất cả lá bài Tarot
+exports.getAllCards = async (req, res, next) => {
+  try {
+    const { type, suit } = req.query;
     
-    // Chọn lá bài ngẫu nhiên
-    const randomCardId = Math.floor(Math.random() * cardCount) + 1;
-    const randomCard = await Card.findByPk(randomCardId);
+    // Xây dựng query filter
+    const filter = {};
+    if (type) filter.type = type;
+    if (suit) filter.suit = suit;
     
-    // Ngẫu nhiên lá bài xuôi hay ngược
-    const isReversed = Math.random() > 0.5;
-    
-    // Tạo thông điệp và lời khuyên
-    const message = isReversed 
-      ? `Hôm nay bạn nhận được lá ${randomCard.name} ở trạng thái ngược. ${randomCard.reversed}`
-      : `Hôm nay bạn nhận được lá ${randomCard.name}. ${randomCard.upright}`;
-    
-    const advice = isReversed
-      ? `Hãy chú ý đến những khía cạnh ${randomCard.reversedKeywords.join(', ')} trong ngày hôm nay.`
-      : `Hãy tập trung vào những khía cạnh ${randomCard.uprightKeywords.join(', ')} trong ngày hôm nay.`;
-    
-    // Tạo bản ghi DailyTarot mới
-    dailyTarot = await DailyTarot.create({
-      cardId: randomCard.id,
-      date: today,
-      isReversed,
-      message,
-      advice
+    const cards = await TarotCard.findAll({
+      where: filter,
+      order: [
+        ['type', 'ASC'],
+        ['suit', 'ASC'],
+        ['number', 'ASC']
+      ]
     });
     
-    // Lấy thông tin đầy đủ kèm Card
-    dailyTarot = await DailyTarot.findByPk(dailyTarot.id, {
-      include: [{ model: Card, as: 'card' }]
+    res.status(200).json({
+      status: 'success',
+      count: cards.length,
+      data: {
+        cards
+      }
     });
+  } catch (error) {
+    next(error);
   }
+};
 
-  res.status(200).json({
-    success: true,
-    data: dailyTarot
-  });
-});
-
-/**
- * @desc    Tạo một trải bài mới
- * @route   POST /api/tarot/readings
- * @access  Private
- */
-export const createReading = asyncHandler(async (req, res, next) => {
-  // Thêm userId từ người dùng đã đăng nhập
-  req.body.userId = req.user.id;
-  
-  const { userId, type, question, cards } = req.body;
-  
-  // Tạo reading
-  const reading = await Reading.create({
-    userId,
-    type,
-    question,
-    cards, // Array của card IDs và positions
-    date: new Date()
-  });
-  
-  // Nếu có mảng các lá bài, lưu vào bảng join
-  if (Array.isArray(cards) && cards.length > 0) {
-    for (const cardData of cards) {
-      await ReadingCard.create({
-        readingId: reading.id,
-        cardId: cardData.cardId,
-        position: cardData.position,
-        isReversed: cardData.isReversed || false,
-        positionMeaning: cardData.positionMeaning,
-        interpretation: cardData.interpretation
+// Lấy chi tiết một lá bài
+exports.getCardById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    
+    const card = await TarotCard.findByPk(id);
+    
+    if (!card) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Card not found'
       });
     }
-  }
-  
-  // Lấy reading kèm theo thông tin cards
-  const readingWithCards = await Reading.findByPk(reading.id, {
-    include: [
-      {
-        model: Card,
-        as: 'cards',
-        through: {
-          attributes: ['position', 'isReversed', 'positionMeaning', 'interpretation']
-        }
+    
+    res.status(200).json({
+      status: 'success',
+      data: {
+        card
       }
-    ]
-  });
-
-  res.status(201).json({
-    success: true,
-    data: readingWithCards
-  });
-});
-
-/**
- * @desc    Lấy thông tin một trải bài
- * @route   GET /api/tarot/readings/:id
- * @access  Private
- */
-export const getReading = asyncHandler(async (req, res, next) => {
-  const reading = await Reading.findByPk(req.params.id, {
-    include: [
-      {
-        model: Card,
-        as: 'cards',
-        through: {
-          attributes: ['position', 'isReversed', 'positionMeaning', 'interpretation']
-        }
-      }
-    ]
-  });
-
-  if (!reading) {
-    return next(new ErrorResponse(`Không tìm thấy trải bài với ID ${req.params.id}`, 404));
+    });
+  } catch (error) {
+    next(error);
   }
+};
 
-  // Kiểm tra người dùng có quyền xem trải bài này không
-  if (reading.userId !== req.user.id && req.user.role !== 'admin') {
-    return next(new ErrorResponse('Không được phép xem trải bài này', 403));
-  }
-
-  res.status(200).json({
-    success: true,
-    data: reading
-  });
-});
-
-/**
- * @desc    Lấy tất cả trải bài của người dùng
- * @route   GET /api/tarot/readings
- * @access  Private
- */
-export const getUserReadings = asyncHandler(async (req, res, next) => {
-  const readings = await Reading.findAll({
-    where: { userId: req.user.id },
-    order: [['date', 'DESC']],
-    include: [
-      {
-        model: Card,
-        as: 'cards',
-        through: {
-          attributes: ['position', 'isReversed']
-        }
+// Lấy lá bài hàng ngày
+exports.getDailyCard = async (req, res, next) => {
+  try {
+    // Lấy ngày hiện tại làm seed để luôn trả về cùng một lá bài trong một ngày
+    const today = new Date();
+    const dateString = `${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`;
+    const seed = dateString.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    
+    // Lấy tổng số lá bài
+    const cardCount = await TarotCard.count();
+    
+    // Chọn một lá bài ngẫu nhiên nhưng cố định cho ngày
+    const randomIndex = seed % cardCount;
+    
+    const cards = await TarotCard.findAll({
+      order: [
+        ['id', 'ASC']
+      ],
+      offset: randomIndex,
+      limit: 1
+    });
+    
+    if (!cards.length) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'No cards found'
+      });
+    }
+    
+    // Tạo một giải thích đơn giản
+    const card = cards[0];
+    const isReversed = (seed % 2) === 1;
+    const interpretation = isReversed ? card.reversedMeaning : card.normalMeaning;
+    
+    res.status(200).json({
+      status: 'success',
+      data: {
+        date: dateString,
+        card: {
+          ...card.toJSON(),
+          isReversed
+        },
+        interpretation
       }
-    ]
-  });
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
-  res.status(200).json({
-    success: true,
-    count: readings.length,
-    data: readings
-  });
-}); 
+// Lấy ngẫu nhiên các lá bài
+exports.getRandomCards = async (req, res, next) => {
+  try {
+    const { count = 3 } = req.body;
+    
+    // Giới hạn số lượng lá bài tối đa
+    const limit = Math.min(count, 12);
+    
+    // Lấy tất cả lá bài và trộn ngẫu nhiên
+    const allCards = await TarotCard.findAll();
+    
+    // Trộn mảng lá bài
+    const shuffledCards = allCards.sort(() => 0.5 - Math.random());
+    
+    // Lấy n lá bài đầu tiên
+    const selectedCards = shuffledCards.slice(0, limit).map(card => ({
+      ...card.toJSON(),
+      isReversed: Math.random() > 0.5
+    }));
+    
+    res.status(200).json({
+      status: 'success',
+      count: selectedCards.length,
+      data: {
+        cards: selectedCards
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Tạo kết quả bói bài mới
+exports.createReading = async (req, res, next) => {
+  try {
+    const { type, cards, question, domain } = req.body;
+    const userId = req.user.id;
+    
+    // Kiểm tra các lá bài tồn tại
+    const cardIds = cards.map(card => card.id);
+    const existingCards = await TarotCard.findAll({
+      where: {
+        id: cardIds
+      }
+    });
+    
+    if (existingCards.length !== cardIds.length) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'One or more cards do not exist'
+      });
+    }
+    
+    // Bắt đầu transaction
+    const transaction = await db.sequelize.transaction();
+    
+    try {
+      // Tạo reading mới
+      const reading = await TarotReading.create({
+        user_id: userId,
+        type,
+        question: question || null,
+        domain: domain || null
+      }, { transaction });
+      
+      // Tạo bản ghi cho từng lá bài
+      const readingCards = [];
+      
+      for (let i = 0; i < cards.length; i++) {
+        const card = cards[i];
+        
+        const readingCard = await TarotReadingCard.create({
+          reading_id: reading.id,
+          card_id: card.id,
+          position: i + 1,
+          is_reversed: !!card.isReversed
+        }, { transaction });
+        
+        readingCards.push(readingCard);
+      }
+      
+      // Tạo giải thích cơ bản
+      const cardDetails = await Promise.all(
+        readingCards.map(async (rc) => {
+          const card = await TarotCard.findByPk(rc.card_id, { transaction });
+          return {
+            ...card.toJSON(),
+            position: rc.position,
+            isReversed: rc.is_reversed
+          };
+        })
+      );
+      
+      // Tạo giải thích đơn giản
+      let interpretationText = `Reading Type: ${type}\n\n`;
+      
+      if (question) {
+        interpretationText += `Question: ${question}\n\n`;
+      }
+      
+      if (domain) {
+        interpretationText += `Domain: ${domain}\n\n`;
+      }
+      
+      interpretationText += "Cards Interpretation:\n\n";
+      
+      cardDetails.forEach(card => {
+        interpretationText += `Card ${card.position}: ${card.name} ${card.isReversed ? '(Reversed)' : ''}\n`;
+        interpretationText += card.isReversed ? card.reversedMeaning : card.normalMeaning;
+        interpretationText += '\n\n';
+      });
+      
+      // Lưu giải thích
+      const interpretation = await TarotReadingInterpretation.create({
+        reading_id: reading.id,
+        content: interpretationText,
+        ai_generated: false
+      }, { transaction });
+      
+      // Cập nhật thống kê người dùng
+      await db.userStats.increment('readings_count', {
+        where: { user_id: userId },
+        transaction
+      });
+      
+      // Commit transaction
+      await transaction.commit();
+      
+      // Trả về kết quả
+      res.status(201).json({
+        status: 'success',
+        data: {
+          reading: {
+            id: reading.id,
+            type,
+            question,
+            domain,
+            created_at: reading.created_at,
+            cards: cardDetails,
+            interpretation: interpretationText
+          }
+        }
+      });
+    } catch (error) {
+      // Rollback nếu có lỗi
+      await transaction.rollback();
+      throw error;
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Lấy danh sách đọc bài của người dùng
+exports.getUserReadings = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { limit = 10, offset = 0, type, domain } = req.query;
+    
+    // Xây dựng điều kiện tìm kiếm
+    const where = { user_id: userId };
+    if (type) where.type = type;
+    if (domain) where.domain = domain;
+    
+    // Đếm tổng số kết quả
+    const total = await TarotReading.count({ where });
+    
+    // Lấy kết quả với phân trang
+    const readings = await TarotReading.findAll({
+      where,
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      order: [['created_at', 'DESC']],
+      include: [{
+        model: TarotReadingCard,
+        as: 'cards',
+        include: [{
+          model: TarotCard,
+          as: 'card'
+        }]
+      }]
+    });
+    
+    // Định dạng kết quả trả về
+    const formattedReadings = readings.map(reading => {
+      const formattedCards = reading.cards.map(rc => ({
+        id: rc.card.id,
+        name: rc.card.name,
+        position: rc.position,
+        isReversed: rc.is_reversed,
+        imageUrl: rc.card.imageUrl
+      }));
+      
+      return {
+        id: reading.id,
+        type: reading.type,
+        question: reading.question,
+        domain: reading.domain,
+        created_at: reading.created_at,
+        cards: formattedCards
+      };
+    });
+    
+    res.status(200).json({
+      status: 'success',
+      count: readings.length,
+      total,
+      data: {
+        readings: formattedReadings
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Lấy chi tiết một lần đọc bài
+exports.getReadingById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    
+    // Lấy thông tin reading
+    const reading = await TarotReading.findOne({
+      where: {
+        id,
+        user_id: userId
+      },
+      include: [
+        {
+          model: TarotReadingCard,
+          as: 'cards',
+          include: [{
+            model: TarotCard,
+            as: 'card'
+          }]
+        },
+        {
+          model: TarotReadingInterpretation,
+          as: 'interpretation'
+        }
+      ]
+    });
+    
+    if (!reading) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Reading not found or does not belong to you'
+      });
+    }
+    
+    // Định dạng kết quả trả về
+    const formattedCards = reading.cards.map(rc => ({
+      id: rc.card.id,
+      name: rc.card.name,
+      type: rc.card.type,
+      suit: rc.card.suit,
+      number: rc.card.number,
+      position: rc.position,
+      isReversed: rc.is_reversed,
+      imageUrl: rc.card.imageUrl,
+      meaning: rc.is_reversed ? rc.card.reversedMeaning : rc.card.normalMeaning
+    }));
+    
+    const result = {
+      id: reading.id,
+      type: reading.type,
+      question: reading.question,
+      domain: reading.domain,
+      created_at: reading.created_at,
+      cards: formattedCards,
+      interpretation: reading.interpretation?.content || ""
+    };
+    
+    res.status(200).json({
+      status: 'success',
+      data: {
+        reading: result
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Tạo đọc bài sử dụng AI
+exports.createAIReading = async (req, res, next) => {
+  try {
+    const { type, cards, question, domain } = req.body;
+    const userId = req.user.id;
+    
+    // Kiểm tra người dùng có Premium
+    if (!req.user.is_premium) {
+      return res.status(403).json({
+        status: 'error',
+        message: 'Premium feature - upgrade to Premium to use AI readings'
+      });
+    }
+    
+    // Kiểm tra các lá bài tồn tại
+    const cardIds = cards.map(card => card.id);
+    const existingCards = await TarotCard.findAll({
+      where: {
+        id: cardIds
+      }
+    });
+    
+    if (existingCards.length !== cardIds.length) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'One or more cards do not exist'
+      });
+    }
+    
+    // Bắt đầu transaction
+    const transaction = await db.sequelize.transaction();
+    
+    try {
+      // Tạo reading mới
+      const reading = await TarotReading.create({
+        user_id: userId,
+        type,
+        question,
+        domain: domain || null
+      }, { transaction });
+      
+      // Tạo bản ghi cho từng lá bài
+      const readingCards = [];
+      
+      for (let i = 0; i < cards.length; i++) {
+        const card = cards[i];
+        
+        const readingCard = await TarotReadingCard.create({
+          reading_id: reading.id,
+          card_id: card.id,
+          position: i + 1,
+          is_reversed: !!card.isReversed
+        }, { transaction });
+        
+        readingCards.push(readingCard);
+      }
+      
+      // Lấy thông tin chi tiết các lá bài
+      const cardDetails = await Promise.all(
+        readingCards.map(async (rc) => {
+          const card = await TarotCard.findByPk(rc.card_id, { transaction });
+          return {
+            ...card.toJSON(),
+            position: rc.position,
+            isReversed: rc.is_reversed
+          };
+        })
+      );
+      
+      // Tạo prompt cho AI
+      let aiPrompt = `Provide a tarot reading interpretation for a ${type} spread.`;
+      aiPrompt += `\nQuestion: ${question}`;
+      if (domain) aiPrompt += `\nDomain: ${domain}`;
+      aiPrompt += `\n\nCards in the spread:`;
+      
+      cardDetails.forEach(card => {
+        aiPrompt += `\n${card.position}. ${card.name} ${card.isReversed ? '(Reversed)' : ''}`;
+        aiPrompt += `\n   Meaning: ${card.isReversed ? card.reversedMeaning : card.normalMeaning}`;
+      });
+      
+      aiPrompt += `\n\nProvide a detailed interpretation of this spread, explaining the significance of each card position, how the cards relate to each other, and how they address the question. Include both practical advice and spiritual insights.`;
+      
+      // Gọi API AI để tạo phản hồi
+      const aiResponse = await generateAIResponse(aiPrompt);
+      
+      // Lưu giải thích AI
+      const interpretation = await TarotReadingInterpretation.create({
+        reading_id: reading.id,
+        content: aiResponse,
+        ai_generated: true
+      }, { transaction });
+      
+      // Cập nhật thống kê người dùng
+      await db.userStats.increment('readings_count', {
+        where: { user_id: userId },
+        transaction
+      });
+      
+      // Commit transaction
+      await transaction.commit();
+      
+      // Trả về kết quả
+      res.status(201).json({
+        status: 'success',
+        data: {
+          reading: {
+            id: reading.id,
+            type,
+            question,
+            domain,
+            created_at: reading.created_at,
+            cards: cardDetails,
+            interpretation: aiResponse
+          }
+        }
+      });
+    } catch (error) {
+      // Rollback nếu có lỗi
+      await transaction.rollback();
+      throw error;
+    }
+  } catch (error) {
+    next(error);
+  }
+}; 
