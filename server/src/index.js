@@ -1,95 +1,87 @@
-import express from 'express';
-import dotenv from 'dotenv';
-import cors from 'cors';
-import morgan from 'morgan';
-import path from 'path';
-import cookieParser from 'cookie-parser';
-import { fileURLToPath } from 'url';
-import { sequelize, testConnection } from './config/database.js';
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const morgan = require('morgan');
+const db = require('./models');
+const routes = require('./routes');
+const { seedTarotCards } = require('./utils/dbSeeder');
 
-// Import routes
-import authRoutes from './routes/auth.routes.js';
-import tarotRoutes from './routes/tarot.routes.js';
-
-// Import middlewares
-import errorHandler from './middlewares/error.middleware.js';
-
-// Load environment variables
-dotenv.config();
-
-// Khởi tạo app
+console.log('Khởi động server...');
 const app = express();
-
-// Kiểm tra kết nối database
-testConnection();
+const PORT = process.env.PORT || 5001;
 
 // Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
-app.use(cookieParser());
-
-// CORS
+app.use(helmet());
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: process.env.CLIENT_URL || 'http://localhost:3000',
   credentials: true
 }));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(morgan('dev'));
 
-// Logger
-if (process.env.NODE_ENV === 'development') {
-  app.use(morgan('dev'));
-}
+// Routes
+console.log('Đăng ký các routes API...');
+app.use('/api', routes);
 
-// API Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/tarot', tarotRoutes);
-
-// Serve static files in production
-if (process.env.NODE_ENV === 'production') {
-  // Get directory path for ES modules
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
-  
-  // Phục vụ file tĩnh từ thư mục build
-  const clientBuildPath = path.resolve(__dirname, '../../client/build');
-  app.use(express.static(clientBuildPath));
-  
-  // Tất cả requests khác trỏ về index.html
-  app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api')) {
-      res.sendFile(path.resolve(clientBuildPath, 'index.html'));
-    }
+// Health check route
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'success',
+    message: 'Server is running'
   });
-  
-  console.log('Đang chạy ở chế độ production, phục vụ các tệp tĩnh');
-} else {
-  // Root route cho development
-  app.get('/', (req, res) => {
-    res.json({
-      success: true,
-      message: 'API Tarot App đang hoạt động',
-      version: '1.0.0'
-    });
-  });
-}
-
-// Handler cho routes không tồn tại
-app.use('*', (req, res, next) => {
-  if (req.path.startsWith('/api')) {
-    res.status(404).json({
-      success: false,
-      message: `Không tìm thấy route: ${req.originalUrl}`
-    });
-  } else {
-    next();
-  }
 });
 
-// Error handling middleware
-app.use(errorHandler);
+// Kiểm tra API endpoint thủ công
+app.get('/api/test-cards', (req, res) => {
+  console.log('Test endpoint /api/test-cards được gọi');
+  res.status(200).json({
+    status: 'success',
+    message: 'Test endpoint is working',
+    data: { cards: [{ id: 1, name: 'Test Card' }] }
+  });
+});
 
-// Khởi động server
-const PORT = process.env.PORT || 5000;
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('ERROR HANDLER:', err.stack);
+  res.status(err.statusCode || 500).json({
+    status: 'error',
+    message: err.message || 'Internal Server Error',
+    error: process.env.NODE_ENV === 'development' ? err : {}
+  });
+});
 
-app.listen(PORT, () => {
-  console.log(`Server đang chạy ở cổng ${PORT} trong chế độ ${process.env.NODE_ENV}`);
-}); 
+// Sync database
+console.log('Đang kết nối và đồng bộ database...');
+db.sequelize.sync({ alter: process.env.NODE_ENV === 'development' })
+  .then(async () => {
+    console.log('Database synced successfully');
+    
+    // Seed dữ liệu mẫu nếu cần
+    try {
+      await seedTarotCards();
+    } catch (error) {
+      console.error('Lỗi khi seed dữ liệu:', error);
+    }
+    
+    // Start server
+    app.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
+      console.log(`API endpoint: http://localhost:${PORT}/api`);
+      console.log(`Health check: http://localhost:${PORT}/health`);
+      console.log(`Test cards endpoint: http://localhost:${PORT}/api/test-cards`);
+    });
+  })
+  .catch(err => {
+    console.error('Failed to sync database:', err);
+  });
+
+// Handle unhandled rejections
+process.on('unhandledRejection', (err) => {
+  console.error('UNHANDLED REJECTION:', err);
+  process.exit(1);
+});
+
+module.exports = app; 
